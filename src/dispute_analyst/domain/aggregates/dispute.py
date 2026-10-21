@@ -17,10 +17,10 @@ from dispute_analyst.domain.events.dispute_event import (
     DisputeDenied,
     DisputeOpened,
     DisputeRefunded,
-    DomainEvent,
     RefundFailed,
     SentToManualReview,
 )
+from dispute_analyst.domain.events.domain_event import DomainEvent
 from dispute_analyst.domain.exceptions import DomainError, InvalidTransitionError
 from dispute_analyst.domain.value_objects.approval_limit import ApprovalLimit
 from dispute_analyst.domain.value_objects.decision_proposal import DecisionProposal
