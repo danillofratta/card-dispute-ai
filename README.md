@@ -3,6 +3,16 @@
 An end-to-end AI analyst for credit-card disputes: it classifies the dispute, consults regulations and policies, investigates the customer's history and proposes a decision with cited sources, escalating to a human above the approval limit.
 Each module demonstrates one capability expected from a production AI system (retrieval, multi-agent orchestration, evaluation, security and operations), always backed by measured numbers.
 
+## Stack
+
+Python 3.12 · uv · LangGraph · FastAPI · Pydantic · Postgres + pgvector · Kafka · RabbitMQ · Redis · OpenTelemetry + Langfuse · Streamlit · .NET 10 (A2A)
+
+## Design principles
+
+- **The agent proposes, the domain decides:** the LLM returns a structured proposal, and the `Dispute` aggregate enforces the business invariants.
+- **DDD + light CQRS + vertical slices:** commands go through the aggregate, queries read projected read models, and each use case lives in its own slice.
+- **Architecture contracts enforced in CI:** import-linter breaks the build if the domain imports a framework or one slice imports another.
+
 ## How it works
 
 ```mermaid
@@ -43,3 +53,5 @@ flowchart LR
 - [AGENTS.md](AGENTS.md): architecture rules, dependency contracts, commands and conventions
 
 ## Articles
+
+The series starts with module 1.
