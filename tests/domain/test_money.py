@@ -1,7 +1,7 @@
 from decimal import Decimal
 import pytest
 
-from dispute_analyst.domain.money import Money  
+from dispute_analyst.domain.value_objects.money import Money  
 
 def test_creates_money_with_decimal_amount() -> None:
     money = Money(amount=Decimal("150.00"))
