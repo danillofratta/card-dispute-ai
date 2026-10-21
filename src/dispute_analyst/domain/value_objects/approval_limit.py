@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dispute_analyst.domain.money import Money
+from dispute_analyst.domain.value_objects.money import Money
 
 
 @dataclass(frozen=True, slots=True)
