@@ -55,7 +55,7 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 ### Light CQRS
 - Commands load and save the aggregate through `DisputeRepository` inside a `UnitOfWork`.
 - Queries read Postgres read models through `DisputeReadModel`; projections that consume Kafka events update them through the same port.
-- No event sourcing (see the ADR).
+- No event sourcing (see [ADR 0001](docs/adr/0001-ddd-light-cqrs-no-event-sourcing.md)).
 
 ### Vertical slices
 - One folder per use case under `features/`: command or query, handler, endpoint, tests.
