@@ -1,6 +1,7 @@
 import ast
 import sys
 from pathlib import Path
+
 import dispute_analyst.domain as domain
 
 
@@ -18,9 +19,8 @@ def test_domain_is_pure():
                     top_name = mod_name.split(".")[0]
 
                     is_stdlib = top_name in sys.stdlib_module_names
-                    is_domain = (
-                        mod_name == "dispute_analyst.domain"
-                        or mod_name.startswith("dispute_analyst.domain.")
+                    is_domain = mod_name == "dispute_analyst.domain" or mod_name.startswith(
+                        "dispute_analyst.domain."
                     )
 
                     if not (is_stdlib or is_domain):
@@ -35,9 +35,8 @@ def test_domain_is_pure():
                     top_name = mod_name.split(".")[0]
 
                     is_stdlib = top_name in sys.stdlib_module_names
-                    is_domain = (
-                        mod_name == "dispute_analyst.domain"
-                        or mod_name.startswith("dispute_analyst.domain.")
+                    is_domain = mod_name == "dispute_analyst.domain" or mod_name.startswith(
+                        "dispute_analyst.domain."
                     )
 
                     if not (is_stdlib or is_domain):
