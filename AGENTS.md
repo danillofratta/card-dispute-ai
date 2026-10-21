@@ -1,0 +1,183 @@
+# AGENTS.md — card-dispute-ai
+
+Single source of truth for coding agents and humans working in this repo. `CLAUDE.md` only imports this file.
+
+## Project overview
+
+An AI analyst for credit-card disputes ("I don't recognize this charge", "charged twice", "never delivered").
+The system classifies the dispute, consults regulations and internal policies (RAG), investigates the
+customer's history and **proposes** a decision with cited sources. Above the approval limit a human approves;
+then a .NET agent executes the refund via A2A.
+
+- Public portfolio monorepo, explained in an article series. Every architecture choice comes with measured numbers (accuracy, cost, latency).
+- Runs with one command and with any LLM provider, including a local model.
+- Public or synthetic data only.
+- Summary and decisions: `docs/KICKOFF.md`. Full scope: `docs/SCOPE.md`. The repo is built one module at a time, so some folders and commands below may not exist yet.
+
+## Stack
+
+| Concern | Choice |
+|---|---|
+| Language / packaging | Python 3.12, uv workspace |
+| Orchestration | LangGraph; LangChain only for models and integrations |
+| API / contracts | FastAPI, Pydantic |
+| Database | Postgres + pgvector (vectors, read models, LangGraph checkpointer) |
+| Messaging | Kafka in KRaft mode (domain events), RabbitMQ (commands, work queues) |
+| Cache / coordination | Redis |
+| Retrieval | pgvector (dense), bm25s (lexical), BGE reranker (Cohere optional) |
+| Observability | OpenTelemetry + self-hosted Langfuse |
+| UI | Streamlit |
+| Quality | pytest, ruff, mypy, import-linter, GitHub Actions |
+| Models | Configurable: OpenAI, Anthropic, or local Ollama |
+| Interop | .NET 10 + Microsoft Agent Framework, via A2A |
+
+## Architecture rules
+
+DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src/dispute_analyst/`) only.
+`labs/`, `evals/` and `ingestion/` are plain pipelines: no DDD ceremony there.
+
+### The agent proposes, the domain decides
+- The LLM returns a structured `DecisionProposal`. The `Dispute` aggregate validates it and decides.
+- Invariants live in the aggregate: approved amount never exceeds the disputed amount; above the
+  `ApprovalLimit` the dispute goes to human approval; no citation means no approval.
+- Never encode a business invariant only in a prompt. A prompt may repeat a rule; the domain enforces it.
+
+### Domain (DDD)
+- `Dispute` aggregate with an explicit state machine:
+  - `open → under_analysis`
+  - `under_analysis → approved` (below the limit) `| denied | awaiting_approval | manual_review` (graceful degradation)
+  - `awaiting_approval → approved | denied`
+  - `manual_review → approved | denied`
+  - `approved → refunded | refund_failed` (refund saga)
+  - `refund_failed → refunded` (retry) `| manual_review`
+- Value objects: `Money`, `Cpf`, `ApprovalLimit`, `DisputeReason`. Every state change raises a domain event.
+
+### Light CQRS
+- Commands load and save the aggregate through `DisputeRepository` inside a `UnitOfWork`.
+- Queries read Postgres read models through `DisputeReadModel`; projections that consume Kafka events update them through the same port.
+- No event sourcing (see the ADR).
+
+### Vertical slices
+- One folder per use case under `features/`: command or query, handler, endpoint, tests.
+- Slices do not import each other. Shared behavior belongs in `domain/` or behind a port.
+
+### Ports & adapters
+- Ports: `DisputeRepository`, `UnitOfWork`, `DisputeReadModel`, `LLM`, `VectorStore`, `Reranker`, `MessageBus`,
+  `EventStream`, `Cache`, `CoreBanking`, `PlaybookRepository`, `DisputeAnalyzer`, `KnowledgeBase`.
+- `UnitOfWork` persists the aggregate and its outbox events in one transaction; `DisputeReadModel` is the read side for queries and projections.
+- `agents/` implements `DisputeAnalyzer`; `knowledge/` implements `KnowledgeBase`. Agents reach RAG only through the `KnowledgeBase` port.
+- The deterministic, autonomous and hybrid strategies are three `DisputeAnalyzer` implementations, chosen by configuration.
+- On the `LLM` port: PII masking as a decorator, circuit breaker (state in Redis) and provider fallback (primary → secondary → local).
+
+### Messaging and resilience
+- Domain events → Kafka (key = dispute id, to keep per-dispute ordering). Work commands (analyze, refund) → RabbitMQ (priority by amount, dead-letter, delayed retry).
+- Outbox: events are written in the same transaction as the aggregate (via `UnitOfWork`) and published by a relay. Inbox: every consumer, Kafka or RabbitMQ, deduplicates by message id.
+- Graceful degradation: if the LLM, RAG or the .NET agent is down, the dispute goes to `manual_review`; it never fails.
+- Redis holds: semantic cache for RAG queries (never for the dispute decision), per-provider rate limits and token budgets, circuit-breaker state, idempotency keys, real-time status.
+
+### Where each rule lives
+| Layer | Answers | Example |
+|---|---|---|
+| Skill (`SKILL.md` playbook) | How to analyze | Fraud investigation checklist |
+| RAG | What the regulation says | Legal deadline to dispute |
+| Domain | What must never fail | Approval limit |
+
+## Dependency rules (enforced by import-linter)
+
+Contracts live in the import-linter config and run in CI. All paths are under `dispute_analyst`.
+
+1. **Pure domain** — `domain` imports only the standard library and itself. Forbidden: pydantic, langchain*, langgraph,
+   fastapi, sqlalchemy/psycopg, kafka/rabbitmq clients, redis, httpx, and every other `dispute_analyst` package.
+2. **Layers** (high → low): `entrypoints` → `features` | `projections` → `ports` → `domain`.
+3. **Independent slices** — `features.*` do not import each other; they depend only on `ports` and `domain`.
+4. **Adapter-like packages** — `agents`, `knowledge`, `adapters`, `infra` depend only on `ports` and `domain`
+   (plus their own third-party libraries). `agents` never imports `knowledge`.
+5. **Composition root** — only `entrypoints` imports `agents`, `knowledge`, `adapters` and `infra` and wires them to ports.
+6. **Product isolation** — `dispute_analyst` never imports `labs`, `evals`, `ingestion` or `ui`.
+
+Never weaken, ignore or delete a contract to make the build pass. Change the design, or write an ADR and get approval first.
+
+## Folder structure
+
+```text
+card-dispute-ai/
+├── AGENTS.md                 # this file
+├── CLAUDE.md                 # imports AGENTS.md
+├── .claude/skills/           # dev skills: new-vertical-slice, new-adr, new-eval-case, new-rag-experiment
+├── src/dispute_analyst/      # the product (DDD + CQRS + vertical slices)
+│   ├── domain/               # pure Python: aggregate, value objects, events
+│   ├── features/             # vertical slices
+│   │   ├── open_dispute/     # command
+│   │   ├── analyze_dispute/  # command → DisputeAnalyzer
+│   │   ├── approve_decision/ # command
+│   │   ├── execute_refund/   # command → A2A, .NET agent
+│   │   ├── get_dispute/      # query
+│   │   └── list_queue/       # query
+│   ├── projections/          # Kafka consumers → read models
+│   ├── agents/               # LangGraph graphs and the three strategies
+│   │   └── skills/           # specialist playbooks (fraud/, duplicate-charge/, not-delivered/)
+│   ├── knowledge/            # runtime RAG: router, retrievers, rerankers
+│   ├── ports/                # interfaces (Protocols)
+│   ├── adapters/             # OpenAI, Anthropic, Ollama, pgvector, Kafka, RabbitMQ, Redis, A2A
+│   ├── infra/                # database, outbox, inbox, resilience, telemetry
+│   └── entrypoints/          # FastAPI, MCP, workers, outbox relay (composition root)
+├── labs/                     # experiments, no DDD (rag_lab/, strategies/)
+├── evals/                    # datasets, judges, CI suites
+├── ingestion/                # regulation and policy ingestion pipeline
+├── ui/                       # Streamlit
+├── interop/dotnet/           # .NET refund agent, same pattern, in C#
+├── docs/adr/                 # architecture decision records
+└── docker-compose.yml        # light (default) and full profiles
+```
+
+Folder-level `AGENTS.md` files refine these rules for `domain/` (pure Python, no I/O), `features/` (slice layout) and `labs/` (no DDD).
+
+## Commands
+
+```bash
+uv sync                               # install the workspace
+uv run pytest                         # all tests
+uv run pytest -m "not integration"    # fast unit subset
+uv run ruff check . --fix             # lint
+uv run ruff format .                  # format
+uv run mypy src                       # type-check
+uv run lint-imports                   # architecture contracts
+docker compose up                     # light profile: queue in Postgres, in-memory cache
+docker compose --profile full up      # adds Kafka, RabbitMQ and Redis
+```
+
+Before every commit: `uv run ruff format . && uv run ruff check . && uv run mypy src && uv run lint-imports && uv run pytest`.
+
+## Conventions
+
+- Code, folders, identifiers and commit messages in English.
+- Slice folders are `verb_noun` use cases in snake_case (`open_dispute`, `get_dispute`).
+- Type hints everywhere; mypy runs in strict mode on `src/`.
+- Pydantic at the boundaries (API, LLM structured output, messages); plain classes and frozen dataclasses in the domain.
+- Money is always `Money` backed by `Decimal`; never `float`.
+- Async for I/O (adapters, entrypoints, handlers); the domain is synchronous and pure.
+- Ports are `typing.Protocol`s; adapters are injected in `entrypoints`, never instantiated inside features.
+- Unit tests never call a real LLM or network service: use fakes behind the ports. Real models run only in `evals/`.
+- Domain tests are plain unit tests with no I/O. Slice tests live next to the slice. Mark tests that need containers with `@pytest.mark.integration`.
+- Any change to a prompt or a runtime skill must pass the evals, like any code change.
+- Runtime skills are written in this repo only; nothing from community hubs.
+- Ask before adding a new dependency.
+- Secrets never enter the repo: `.env.example` locally, secrets in CI.
+- Public or synthetic data only; no proprietary or real customer data.
+- Every architecture decision gets an ADR in `docs/adr/`.
+- Small steps, one module at a time, in scope order. Conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`).
+
+## Definition of done
+
+Every change:
+- [ ] Tests added or updated and green
+- [ ] `ruff`, `mypy` and `lint-imports` green
+- [ ] No business invariant living only in a prompt
+- [ ] Committed
+
+Every module:
+- [ ] Runs with `docker compose up` and with a local model
+- [ ] README with goal, diagram, decisions (ADRs) and GIF
+- [ ] Measured numbers recorded in the README
+- [ ] CI green
+- [ ] Article published and linked both ways
