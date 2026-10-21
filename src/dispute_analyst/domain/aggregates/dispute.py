@@ -10,7 +10,7 @@ from dispute_analyst.domain.entities.transaction import Transaction
 from dispute_analyst.domain.enums.dispute_reason import DisputeReason
 from dispute_analyst.domain.enums.dispute_status import DisputeStatus
 from dispute_analyst.domain.enums.proposal_outcome import ProposalOutcome
-from dispute_analyst.domain.events.dispute_events import (
+from dispute_analyst.domain.events.dispute_event import (
     AnalysisStarted,
     ApprovalRequested,
     DisputeApproved,
