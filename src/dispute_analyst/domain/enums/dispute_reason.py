@@ -1,4 +1,4 @@
-"""Why the customer is disputes a card transaction"""
+"""Why the customer disputes a card transaction"""
 
 from enum import StrEnum
 
