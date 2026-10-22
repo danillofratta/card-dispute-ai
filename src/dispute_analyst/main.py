@@ -2,6 +2,8 @@
 
 from fastapi import FastAPI
 
+from dispute_analyst.features.disputes.open_dispute.endpoint import router as open_dispute_router
+
 
 def create_app() -> FastAPI:
     """Build the API. Each slice adds its router here, and nothing else lives in this module."""
@@ -15,6 +17,8 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         """Report that the process is up, without touching any dependency."""
         return {"status": "ok"}
+
+    app.include_router(open_dispute_router)
 
     return app
 
