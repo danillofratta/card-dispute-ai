@@ -65,7 +65,7 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
   it would import every slice and couple them.
 - Each endpoint builds its handler in a small `get_handler` function from the providers in
   `bootstrap/dependencies.py`. `bootstrap` never imports a slice.
-- Slices do not import each other. Shared behavior belongs in `domain/` or behind a port in `application/ports/`.
+- Slices do not import each other. Shared behavior belongs in `domain/` or behind a port in `application/gateways/`.
 - Slice tests live in `tests/features/<context>/<slice>/`.
 
 ### Ports & adapters (hexagonal)

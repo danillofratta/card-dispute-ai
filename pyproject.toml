@@ -36,6 +36,7 @@ files = ["src"]
 mypy_path = "src"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--strict-markers --import-mode=importlib"
 markers = [
@@ -123,4 +124,14 @@ name = "6. Product isolation: dispute_analyst never imports labs, evals, ingesti
 type = "forbidden"
 source_modules = ["dispute_analyst"]
 forbidden_modules = ["labs", "evals", "ingestion", "ui"]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "import-linter>=2.15",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+]
 
