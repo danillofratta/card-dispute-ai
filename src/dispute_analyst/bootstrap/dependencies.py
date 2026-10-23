@@ -7,8 +7,12 @@ from fastapi import Depends
 
 from dispute_analyst.application.ports.core_banking import CoreBanking
 from dispute_analyst.application.ports.unit_of_work import UnitOfWork
+from dispute_analyst.domain.repositories.dispute_repository import DisputeRepository
 from dispute_analyst.infrastructure.core_banking.simulated_core_banking import (
     SimulatedCoreBanking,
+)
+from dispute_analyst.infrastructure.persistence.memory.dispute_repository import (
+    InMemoryDisputeRepository,
 )
 from dispute_analyst.infrastructure.persistence.memory.store import InMemoryStore
 from dispute_analyst.infrastructure.persistence.memory.unit_of_work import InMemoryUnitOfWork
@@ -31,6 +35,14 @@ def get_unit_of_work(store: Annotated[InMemoryStore, Depends(get_store)]) -> Uni
     return InMemoryUnitOfWork(store)
 
 
+def get_dispute_repository(
+    store: Annotated[InMemoryStore, Depends(get_store)],
+) -> DisputeRepository:
+    """A repository for queries, over the shared store. Commands use the one in the unit of work."""
+    return InMemoryDisputeRepository(store)
+
+
 # Endpoints depend on these aliases: they see only the port types, never the implementations.
 UnitOfWorkDependency = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 CoreBankingDependency = Annotated[CoreBanking, Depends(get_core_banking)]
+DisputeRepositoryDependency = Annotated[DisputeRepository, Depends(get_dispute_repository)]

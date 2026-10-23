@@ -54,18 +54,19 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 
 ### Light CQRS
 - Commands load and save the aggregate through `DisputeRepository` inside a `UnitOfWork`.
-- Queries read through the read port of their own slice, never through the aggregate; with Kafka (module 10), projections keep the tables behind those ports up to date.
+- Queries read through `DisputeRepository` and map the aggregate to their own `result`; they never change it.
+  Dedicated read models arrive only when a query needs one ([ADR 0004](docs/adr/0004-queries-read-through-the-repository.md)).
 - No event sourcing (see [ADR 0001](docs/adr/0001-ddd-light-cqrs-no-event-sourcing.md)).
 
 ### Vertical slices
 - One folder per use case under `features/<context>/`, for example `features/disputes/open_dispute/`:
   - core: `command.py` or `query.py`, `handler.py`, `result.py` (what the handler returns, in domain types),
-    `ports.py` (ports only this slice uses) and, when needed, `exceptions.py`;
+    and, when needed, `ports.py` (ports only this slice uses) and `exceptions.py`;
   - HTTP adapter: `endpoint.py` (the FastAPI router) and `models.py` (Pydantic request and response).
 - The endpoint maps request → command or query, and result → response. It also maps the slice's own errors
   to HTTP; there is no shared exception handler, because it would import every slice and couple them.
-- Each endpoint builds its handler in a small `get_handler` function. It gets shared ports from
-  `bootstrap/dependencies.py` and slice ports from `bootstrap/<context>/<slice>.py`.
+- Each endpoint builds its handler in a small `get_handler` function from the providers in
+  `bootstrap/dependencies.py`; a slice with ports of its own gets them from `bootstrap/<context>/<slice>.py`.
 - Slices do not import each other. Shared behavior belongs in `domain/` or behind a port in `application/ports/`.
 - Slice tests live in `tests/features/<context>/<slice>/`.
 
@@ -74,16 +75,15 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
   - `domain/repositories/`: `DisputeRepository`, the DDD repository of the aggregate.
   - `application/ports/`: ports shared by several slices that return domain types: `UnitOfWork`, `CoreBanking`,
     and later `LLM`, `KnowledgeBase`, `MessageBus`, `EventStream`, `Cache`.
-  - `features/<context>/<slice>/ports.py`: ports only that slice uses. Read ports return the slice's own
-    `result` types, for example `DisputeDetailsReader` in `get_dispute/`; `DisputeAnalyzer` will live in `analyze_dispute/`.
+  - `features/<context>/<slice>/ports.py`: ports only that slice uses, such as `DisputeAnalyzer` in `analyze_dispute/`.
   - Inside `infrastructure/`: abstractions only infrastructure uses, such as `VectorStore`, `Reranker` and `PlaybookRepository`.
 - `infrastructure/` implements the ports, so it may import a slice's core (`ports`, `result`, `query`, `command`),
   never its endpoint, models or handler. One infrastructure module per slice port: a module serving two slices
   would couple them.
 - `bootstrap/dependencies.py` provides the shared ports and never imports a slice. Each slice with its own ports
   gets `bootstrap/<context>/<slice>.py`. `main.py` creates the app and includes the routers.
-- `UnitOfWork` persists the aggregate and its outbox events in one transaction. There is no shared read model:
-  each query slice reads through its own port, and with Kafka (module 10) projections feed the tables those ports read.
+- `UnitOfWork` persists the aggregate and its outbox events in one transaction. Commands use the repository inside it;
+  queries get the repository directly from `bootstrap`, because reading needs no transaction.
 - `infrastructure/core_banking/` is the anti-corruption layer: it translates the bank's model into our `Customer`, `Card` and `Transaction`.
 - The deterministic, autonomous and hybrid strategies are three `DisputeAnalyzer` implementations in
   `infrastructure/agents/`, chosen by configuration. Agents reach RAG only through `KnowledgeBase`,
