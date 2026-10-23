@@ -5,7 +5,10 @@ description = "AI analyst for credit-card disputes: classifies, investigates and
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.159.1",
+    "uvicorn[standard]>=0.54.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
@@ -33,21 +36,21 @@ files = ["src"]
 mypy_path = "src"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "src"]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 addopts = "--strict-markers --import-mode=importlib"
 markers = [
     "integration: needs containers (Postgres, Kafka, RabbitMQ, Redis)",
 ]
-
 # Architecture contracts from AGENTS.md ("Dependency rules"). Never weaken them to make the build pass.
 [tool.importlinter]
 root_package = "dispute_analyst"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "1. Pure domain: domain imports only the standard library and itself"
+name = "1. Pure core: domain and application import no framework and no outer layer"
 type = "forbidden"
-source_modules = ["dispute_analyst.domain"]
+source_modules = ["dispute_analyst.domain", "dispute_analyst.application"]
 forbidden_modules = [
     "pydantic",
     "langchain",
@@ -71,67 +74,81 @@ forbidden_modules = [
     "redis",
     "httpx",
     "requests",
+    "openai",
+    "anthropic",
+    "ollama",
     "dispute_analyst.features",
-    "dispute_analyst.projections",
-    "dispute_analyst.ports",
-    "dispute_analyst.agents",
-    "dispute_analyst.knowledge",
-    "dispute_analyst.adapters",
-    "dispute_analyst.infra",
-    "dispute_analyst.entrypoints",
+    "dispute_analyst.infrastructure",
+    "dispute_analyst.bootstrap",
+    "dispute_analyst.main",
 ]
 
 [[tool.importlinter.contracts]]
-name = "2. Layers: entrypoints -> features | projections -> ports -> domain"
+name = "2. Layers: main -> bootstrap -> infrastructure -> application -> domain"
 type = "layers"
 layers = [
-    "dispute_analyst.entrypoints",
-    "dispute_analyst.features | dispute_analyst.projections",
-    "dispute_analyst.ports",
+    "dispute_analyst.main",
+    "dispute_analyst.bootstrap",
+    "dispute_analyst.infrastructure",
+    "dispute_analyst.application",
     "dispute_analyst.domain",
 ]
 
 [[tool.importlinter.contracts]]
-name = "3. Independent slices: features.* do not import each other"
+name = "3. Independent slices: features.<context>.<slice> never import each other"
 type = "independence"
-modules = ["dispute_analyst.features.*"]
+modules = ["dispute_analyst.features.*.*"]
 
 [[tool.importlinter.contracts]]
-name = "4. Adapter-like packages depend only on ports and domain"
-type = "layers"
-layers = [
-    "dispute_analyst.entrypoints",
-    "dispute_analyst.features | dispute_analyst.projections | dispute_analyst.agents | dispute_analyst.knowledge | dispute_analyst.adapters | dispute_analyst.infra",
-    "dispute_analyst.ports",
-    "dispute_analyst.domain",
-]
+name = "4. Features never import infrastructure directly; only bootstrap does"
+type = "forbidden"
+source_modules = ["dispute_analyst.features"]
+forbidden_modules = ["dispute_analyst.infrastructure"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "5. Composition root: only entrypoints imports agents, knowledge, adapters and infra"
+name = "5. Slice core (command, query, handler, ports, result) knows only domain and application"
 type = "forbidden"
 source_modules = [
-    "dispute_analyst.features",
-    "dispute_analyst.projections",
-    "dispute_analyst.ports",
-    "dispute_analyst.domain",
+    "dispute_analyst.features.*.*.command",
+    "dispute_analyst.features.*.*.query",
+    "dispute_analyst.features.*.*.handler",
+    "dispute_analyst.features.*.*.ports",
+    "dispute_analyst.features.*.*.result",
 ]
 forbidden_modules = [
-    "dispute_analyst.agents",
-    "dispute_analyst.knowledge",
-    "dispute_analyst.adapters",
-    "dispute_analyst.infra",
+    "dispute_analyst.bootstrap",
+    "dispute_analyst.infrastructure",
+    "fastapi",
+    "starlette",
+    "pydantic",
 ]
 
 [[tool.importlinter.contracts]]
-name = "6. Product isolation: dispute_analyst never imports labs, evals, ingestion or ui"
+name = "6. Infrastructure implements ports; never reaches endpoints, models or handlers"
+type = "forbidden"
+source_modules = ["dispute_analyst.infrastructure"]
+forbidden_modules = [
+    "dispute_analyst.features.*.*.endpoint",
+    "dispute_analyst.features.*.*.models",
+    "dispute_analyst.features.*.*.handler",
+    "dispute_analyst.bootstrap",
+    "dispute_analyst.main",
+]
+
+[[tool.importlinter.contracts]]
+name = "7. Product isolation: dispute_analyst never imports labs, evals, ingestion or ui"
 type = "forbidden"
 source_modules = ["dispute_analyst"]
 forbidden_modules = ["labs", "evals", "ingestion", "ui"]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.0",
     "import-linter>=2.15",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.17.1",
 ]
+

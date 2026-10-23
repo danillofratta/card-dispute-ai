@@ -54,19 +54,40 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 
 ### Light CQRS
 - Commands load and save the aggregate through `DisputeRepository` inside a `UnitOfWork`.
-- Queries read Postgres read models through `DisputeReadModel`; projections that consume Kafka events update them through the same port.
+- Queries read through `DisputeRepository` and map the aggregate to their own `result`; they never change it.
+  Dedicated read models arrive only when a query needs one ([ADR 0004](docs/adr/0004-queries-read-through-the-repository.md)).
 - No event sourcing (see [ADR 0001](docs/adr/0001-ddd-light-cqrs-no-event-sourcing.md)).
 
 ### Vertical slices
-- One folder per use case under `features/`: command or query, handler, endpoint, tests.
-- Slices do not import each other. Shared behavior belongs in `domain/` or behind a port.
+- One folder per use case under `features/<context>/`, for example `features/disputes/open_dispute/`:
+  - core: `command.py` or `query.py`, `handler.py`, `result.py` (what the handler returns, in domain types),
+    and, when needed, `ports.py` (ports only this slice uses) and `exceptions.py`;
+  - HTTP adapter: `endpoint.py` (the FastAPI router) and `models.py` (Pydantic request and response).
+- The endpoint maps request → command or query, and result → response. It also maps the slice's own errors
+  to HTTP; there is no shared exception handler, because it would import every slice and couple them.
+- Each endpoint builds its handler in a small `get_handler` function from the providers in
+  `bootstrap/dependencies.py`; a slice with ports of its own gets them from `bootstrap/<context>/<slice>.py`.
+- Slices do not import each other. Shared behavior belongs in `domain/` or behind a port in `application/ports/`.
+- Slice tests live in `tests/features/<context>/<slice>/`.
 
-### Ports & adapters
-- Ports: `DisputeRepository`, `UnitOfWork`, `DisputeReadModel`, `LLM`, `VectorStore`, `Reranker`, `MessageBus`,
-  `EventStream`, `Cache`, `CoreBanking`, `PlaybookRepository`, `DisputeAnalyzer`, `KnowledgeBase`.
-- `UnitOfWork` persists the aggregate and its outbox events in one transaction; `DisputeReadModel` is the read side for queries and projections.
-- `agents/` implements `DisputeAnalyzer`; `knowledge/` implements `KnowledgeBase`. Agents reach RAG only through the `KnowledgeBase` port.
-- The deterministic, autonomous and hybrid strategies are three `DisputeAnalyzer` implementations, chosen by configuration.
+### Ports & adapters (hexagonal)
+- Ports are `typing.Protocol`s, and each one lives with its consumer ([ADR 0003](docs/adr/0003-hexagonal-layout-with-vertical-slices.md)):
+  - `domain/repositories/`: `DisputeRepository`, the DDD repository of the aggregate.
+  - `application/ports/`: ports shared by several slices that return domain types: `UnitOfWork`, `CoreBanking`,
+    and later `LLM`, `KnowledgeBase`, `MessageBus`, `EventStream`, `Cache`.
+  - `features/<context>/<slice>/ports.py`: ports only that slice uses, such as `DisputeAnalyzer` in `analyze_dispute/`.
+  - Inside `infrastructure/`: abstractions only infrastructure uses, such as `VectorStore`, `Reranker` and `PlaybookRepository`.
+- `infrastructure/` implements the ports, so it may import a slice's core (`ports`, `result`, `query`, `command`),
+  never its endpoint, models or handler. One infrastructure module per slice port: a module serving two slices
+  would couple them.
+- `bootstrap/dependencies.py` provides the shared ports and never imports a slice. Each slice with its own ports
+  gets `bootstrap/<context>/<slice>.py`. `main.py` creates the app and includes the routers.
+- `UnitOfWork` persists the aggregate and its outbox events in one transaction. Commands use the repository inside it;
+  queries get the repository directly from `bootstrap`, because reading needs no transaction.
+- `infrastructure/core_banking/` is the anti-corruption layer: it translates the bank's model into our `Customer`, `Card` and `Transaction`.
+- The deterministic, autonomous and hybrid strategies are three `DisputeAnalyzer` implementations in
+  `infrastructure/agents/`, chosen by configuration. Agents reach RAG only through `KnowledgeBase`,
+  implemented in `infrastructure/knowledge/`.
 - On the `LLM` port: PII masking as a decorator, circuit breaker (state in Redis) and provider fallback (primary → secondary → local).
 
 ### Messaging and resilience
@@ -86,14 +107,20 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 
 Contracts live in the import-linter config and run in CI. All paths are under `dispute_analyst`.
 
-1. **Pure domain** — `domain` imports only the standard library and itself. Forbidden: pydantic, langchain*, langgraph,
-   fastapi, sqlalchemy/psycopg, kafka/rabbitmq clients, redis, httpx, and every other `dispute_analyst` package.
-2. **Layers** (high → low): `entrypoints` → `features` | `projections` → `ports` → `domain`.
-3. **Independent slices** — `features.*` do not import each other; they depend only on `ports` and `domain`.
-4. **Adapter-like packages** — `agents`, `knowledge`, `adapters`, `infra` depend only on `ports` and `domain`
-   (plus their own third-party libraries). `agents` never imports `knowledge`.
-5. **Composition root** — only `entrypoints` imports `agents`, `knowledge`, `adapters` and `infra` and wires them to ports.
-6. **Product isolation** — `dispute_analyst` never imports `labs`, `evals`, `ingestion` or `ui`.
+1. **Pure core** — `domain` and `application` import no framework (pydantic, langchain*, langgraph, fastapi,
+   sqlalchemy/psycopg, kafka/rabbitmq clients, redis, httpx, LLM SDKs) and no outer layer. The domain is stricter:
+   standard library only (`tests/test_domain_is_pure.py`).
+2. **Layers** (high → low): `main` → `bootstrap` → `infrastructure` → `application` → `domain`. Slices are not a
+   layer: their core sits beside `application`, their endpoint beside `main`.
+3. **Independent slices** — `features.<context>.<slice>` never import each other, directly or indirectly
+   (through `bootstrap` or `infrastructure` too).
+4. **No direct infrastructure in features** — endpoints reach implementations only through `bootstrap`.
+5. **Slice core knows only the core** — `command`, `query`, `handler`, `ports` and `result` import `domain` and
+   `application` only: no FastAPI, Pydantic, `bootstrap` or `infrastructure`.
+6. **Infrastructure implements ports** — it never imports a slice's endpoint, models or handler, nor `bootstrap` or `main`.
+7. **Product isolation** — `dispute_analyst` never imports `labs`, `evals`, `ingestion` or `ui`.
+
+When `infrastructure/agents/` and `infrastructure/knowledge/` arrive, a contract keeps agents from importing knowledge directly.
 
 Never weaken, ignore or delete a contract to make the build pass. Change the design, or write an ADR and get approval first.
 
@@ -104,23 +131,30 @@ card-dispute-ai/
 ├── AGENTS.md                 # this file
 ├── CLAUDE.md                 # imports AGENTS.md
 ├── .claude/skills/           # dev skills: new-vertical-slice, new-adr, new-eval-case, new-rag-experiment
-├── src/dispute_analyst/      # the product (DDD + CQRS + vertical slices)
-│   ├── domain/               # pure Python: aggregate, value objects, events
-│   ├── features/             # vertical slices
-│   │   ├── open_dispute/     # command
-│   │   ├── analyze_dispute/  # command → DisputeAnalyzer
-│   │   ├── approve_decision/ # command
-│   │   ├── execute_refund/   # command → A2A, .NET agent
-│   │   ├── get_dispute/      # query
-│   │   └── list_queue/       # query
-│   ├── projections/          # Kafka consumers → read models
-│   ├── agents/               # LangGraph graphs and the three strategies
-│   │   └── skills/           # specialist playbooks (fraud/, duplicate-charge/, not-delivered/)
-│   ├── knowledge/            # runtime RAG: router, retrievers, rerankers
-│   ├── ports/                # interfaces (Protocols)
-│   ├── adapters/             # OpenAI, Anthropic, Ollama, pgvector, Kafka, RabbitMQ, Redis, A2A
-│   ├── infra/                # database, outbox, inbox, resilience, telemetry
-│   └── entrypoints/          # FastAPI, MCP, workers, outbox relay (composition root)
+├── src/dispute_analyst/      # the product (DDD + light CQRS + vertical slices + hexagonal)
+│   ├── domain/               # pure Python: aggregates, entities, value objects, enums, events
+│   │   └── repositories/     # repository interfaces (DDD)
+│   ├── application/
+│   │   └── ports/            # interfaces shared by several slices (unit of work, core bank)
+│   ├── features/             # vertical slices, grouped by context
+│   │   └── disputes/
+│   │       ├── open_dispute/       # command
+│   │       ├── get_dispute/        # query
+│   │       ├── list_queue/         # query
+│   │       ├── analyze_dispute/    # command → DisputeAnalyzer (port inside the slice)
+│   │       ├── approve_decision/   # command
+│   │       └── execute_refund/     # command → A2A, .NET agent
+│   ├── infrastructure/       # implementations of the ports
+│   │   ├── persistence/      # memory/ then postgres/: repository, unit of work, outbox, inbox; <context>/<slice>.py for slice ports
+│   │   ├── core_banking/     # simulated core bank (anti-corruption layer)
+│   │   ├── agents/           # LangGraph graphs, the three strategies and skills/ (specialist playbooks)
+│   │   ├── knowledge/        # runtime RAG: router, retrievers, rerankers
+│   │   ├── llm/              # OpenAI, Anthropic, Ollama behind the LLM port
+│   │   ├── messaging/        # Kafka, RabbitMQ, projections into read models
+│   │   └── observability/    # tracing, metrics, logging
+│   ├── bootstrap/            # composition root: dependencies.py (shared), <context>/<slice>.py, settings
+│   └── main.py               # FastAPI app; MCP server and workers join it as other entry points
+├── tests/                    # mirrors src: domain/, features/<context>/<slice>/, infrastructure/
 ├── labs/                     # experiments, no DDD (rag_lab/, strategies/)
 ├── evals/                    # datasets, judges, CI suites
 ├── ingestion/                # regulation and policy ingestion pipeline
@@ -142,6 +176,7 @@ uv run ruff check . --fix             # lint
 uv run ruff format .                  # format
 uv run mypy src                       # type-check
 uv run lint-imports                   # architecture contracts
+uv run uvicorn dispute_analyst.main:app --reload   # API on http://localhost:8000/docs
 docker compose up                     # light profile: queue in Postgres, in-memory cache
 docker compose --profile full up      # adds Kafka, RabbitMQ and Redis
 ```
@@ -155,10 +190,10 @@ Before every commit: `uv run ruff format . && uv run ruff check . && uv run mypy
 - Type hints everywhere; mypy runs in strict mode on `src/`.
 - Pydantic at the boundaries (API, LLM structured output, messages); plain classes and frozen dataclasses in the domain.
 - Money is always `Money` backed by `Decimal`; never `float`.
-- Async for I/O (adapters, entrypoints, handlers); the domain is synchronous and pure.
-- Ports are `typing.Protocol`s; adapters are injected in `entrypoints`, never instantiated inside features.
+- Async for I/O (infrastructure, endpoints, handlers); the domain is synchronous and pure.
+- Ports are `typing.Protocol`s. Implementations are created only in `bootstrap/` and reach features through dependencies; features never instantiate them.
 - Unit tests never call a real LLM or network service: use fakes behind the ports. Real models run only in `evals/`.
-- Domain tests are plain unit tests with no I/O. Slice tests live next to the slice. Mark tests that need containers with `@pytest.mark.integration`.
+- Tests live in `tests/`, mirroring `src/`. Domain tests are plain unit tests with no I/O. Mark tests that need containers with `@pytest.mark.integration`.
 - Any change to a prompt or a runtime skill must pass the evals, like any code change.
 - Runtime skills are written in this repo only; nothing from community hubs.
 - Ask before adding a new dependency.

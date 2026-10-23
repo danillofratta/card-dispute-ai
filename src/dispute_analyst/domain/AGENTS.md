@@ -13,6 +13,7 @@ The business rules of a card dispute, in pure Python. Nothing here knows about H
 | `entities/` | Read-only snapshots of data owned by the core bank | `Customer`, `Card`, `Transaction` |
 | `aggregates/` | Objects with identity and a lifecycle; the only place where state changes | `Dispute` |
 | `events/` | What happened, as frozen dataclasses | `DisputeOpened`, `DisputeApproved` |
+| `repositories/` | Repository interfaces (`Protocol`), one per aggregate; implemented in `infrastructure/` | `DisputeRepository` |
 | `exceptions.py` | Errors the domain raises on its own | `DomainError`, `InvalidTransitionError` |
 
 ## Rules
@@ -22,6 +23,7 @@ The business rules of a card dispute, in pure Python. Nothing here knows about H
 - Value objects and entities are `@dataclass(frozen=True, slots=True)` and validate in `__post_init__`, so an invalid object never exists. Text input goes through a factory (`Money.of`, `Cpf.parse`).
 - Amounts are always `Money`, never `float` or a bare `Decimal`.
 - Aggregates reference other objects by id; they never hold them.
+- Only DDD repository interfaces live here. Shared ports (unit of work, external systems) belong in `application/ports/`, and ports only one slice uses in that slice ([ADR 0003](../../../docs/adr/0003-hexagonal-layout-with-vertical-slices.md)).
 - Every status change goes through the state machine in `DisputeStatus` and records exactly one event. Callers collect events with `pull_events()`.
 - The agent proposes, the domain decides ([ADR 0002](../../../docs/adr/0002-agent-proposes-domain-decides.md)): a bad `DecisionProposal` sends the dispute to `manual_review` and never raises. Exceptions are for programming mistakes (`InvalidTransitionError`) and invalid input (`ValueError`, `TypeError`).
 - The domain never corrects a proposal silently, for example by capping an amount.
