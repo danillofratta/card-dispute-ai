@@ -1,0 +1,48 @@
+# Light profile: Postgres, migrations and the API.
+# Run `docker compose up --build`, then open http://localhost:8000/docs
+name: card-dispute-ai
+
+x-database-url: &database-url postgresql+asyncpg://${POSTGRES_USER:-dispute}:${POSTGRES_PASSWORD:-dispute}@postgres:5432/${POSTGRES_DB:-disputes}
+
+services:
+  postgres:
+    # pgvector already included: the knowledge base (module 2) stores embeddings here.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dispute}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dispute}
+      POSTGRES_DB: ${POSTGRES_DB:-disputes}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Runs once and exits: the API never changes the schema on its own.
+  migrate:
+    build: .
+    image: card-dispute-ai/api
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    image: card-dispute-ai/api
+    environment:
+      DATABASE_URL: *database-url
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
