@@ -12,6 +12,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 # The core bank lives in its own schema: another bounded context, reached only through CoreBanking.
 CORE_BANKING_SCHEMA = "core_banking"
 
+# Merchants know whether an order was delivered: another bounded context, linked by id only.
+MERCHANTS_SCHEMA = "merchants"
+
 # Predictable constraint names, so migrations can always find them again.
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -112,3 +115,20 @@ class OutboxEventModel(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     occurred_at: Mapped[datetime]
     published_at: Mapped[datetime | None]
+
+
+class MerchantOrderModel(Base):
+    """An order as the merchant knows it: was the product delivered?
+
+    Linked to the bank transaction by id only: the merchant is another bounded context.
+    """
+
+    __tablename__ = "orders"
+    __table_args__ = {"schema": MERCHANTS_SCHEMA}  # noqa: RUF012
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    transaction_id: Mapped[UUID] = mapped_column(unique=True)
+    merchant: Mapped[str]
+    delivery_status: Mapped[str] = mapped_column(String(16))
+    tracking_code: Mapped[str | None] = mapped_column(String(32))
+    delivered_at: Mapped[datetime | None]

@@ -33,6 +33,17 @@ services:
       postgres:
         condition: service_healthy
 
+  # Runs once: loads the synthetic bank, merchant orders and 300 disputes. Skips if data exists.
+  seed:
+    build: .
+    image: card-dispute-ai/api
+    command: ["python", "-m", "scripts.seed", "database"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   api:
     build: .
     image: card-dispute-ai/api
@@ -41,7 +52,7 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
-      migrate:
+      seed:
         condition: service_completed_successfully
 
 volumes:

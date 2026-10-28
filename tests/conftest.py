@@ -19,12 +19,15 @@ from dispute_analyst.infrastructure.persistence.sqlalchemy.models import (
     TransactionModel,
 )
 
-TABLES = "outbox, disputes, core_banking.transactions, core_banking.cards, core_banking.customers"
+TABLES = (
+    "outbox, disputes, merchants.orders,"
+    " core_banking.transactions, core_banking.cards, core_banking.customers"
+)
 
 
 @pytest.fixture
-async def database() -> AsyncIterator[Database]:
-    """A migrated Postgres, emptied and loaded with the seed bank data before each test.
+async def empty_database() -> AsyncIterator[Database]:
+    """A migrated Postgres with every table emptied before the test.
 
     Needs TEST_DATABASE_URL pointing to a database migrated with `alembic upgrade head`.
     Every test empties it: never point it at a database whose data you want to keep.
@@ -36,6 +39,16 @@ async def database() -> AsyncIterator[Database]:
     database = Database(url)
     async with database.session_factory() as session:
         await session.execute(text(f"TRUNCATE {TABLES}"))
+        await session.commit()
+    yield database
+    await database.dispose()
+
+
+@pytest.fixture
+async def database(empty_database: Database) -> AsyncIterator[Database]:
+    """An empty database plus the fixed core bank data (Ana and Bruno)."""
+    database = empty_database
+    async with database.session_factory() as session:
         session.add_all(
             [
                 CustomerModel(id=CUSTOMER_ANA, name="Ana Souza", cpf="52998224725"),
@@ -62,4 +75,3 @@ async def database() -> AsyncIterator[Database]:
         await session.commit()
 
     yield database
-    await database.dispose()

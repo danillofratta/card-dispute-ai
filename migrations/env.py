@@ -8,14 +8,15 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from dispute_analyst.bootstrap.settings import get_settings
-from dispute_analyst.infrastructure.persistence.sqlalchemy.models import CORE_BANKING_SCHEMA, Base
+from dispute_analyst.infrastructure.persistence.sqlalchemy.models import Base
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-SCHEMAS = {None, "public", CORE_BANKING_SCHEMA}
+# Our schemas: the default one plus every schema a table model declares.
+SCHEMAS = {None, "public"} | {table.schema for table in target_metadata.tables.values()}
 
 
 def include_name(name: str | None, type_: str, parent_names: object) -> bool:
