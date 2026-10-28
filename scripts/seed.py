@@ -35,7 +35,9 @@ from dispute_analyst.bootstrap.settings import get_settings
 from dispute_analyst.domain.aggregates.dispute import Dispute
 from dispute_analyst.domain.entities.card import Card
 from dispute_analyst.domain.entities.customer import Customer
+from dispute_analyst.domain.entities.merchant_order import MerchantOrder
 from dispute_analyst.domain.entities.transaction import Transaction
+from dispute_analyst.domain.enums.delivery_status import DeliveryStatus
 from dispute_analyst.domain.enums.dispute_reason import DisputeReason
 from dispute_analyst.domain.enums.dispute_status import DisputeStatus
 from dispute_analyst.domain.enums.proposal_outcome import ProposalOutcome
@@ -43,6 +45,7 @@ from dispute_analyst.domain.value_objects.approval_limit import ApprovalLimit
 from dispute_analyst.domain.value_objects.cpf import Cpf
 from dispute_analyst.domain.value_objects.money import Money
 from dispute_analyst.infrastructure.core_banking import seed as fixed
+from dispute_analyst.infrastructure.merchants import seed as fixed_orders
 from dispute_analyst.infrastructure.persistence.sqlalchemy.database import Database
 from dispute_analyst.infrastructure.persistence.sqlalchemy.models import (
     CardModel,
@@ -139,18 +142,6 @@ DESCRIPTIONS = {
         "A loja cobrou mas não entregou o produto.",
     ),
 }
-
-
-@dataclass(frozen=True, slots=True)
-class MerchantOrder:
-    """What the merchant knows about an online order."""
-
-    id: UUID
-    transaction_id: UUID
-    merchant: str
-    delivery_status: str
-    tracking_code: str | None
-    delivered_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +247,7 @@ class _Generator:
     # --- customers and their normal spending ---------------------------------------
 
     def add_fixed_customers(self) -> None:
-        """Ana and Bruno keep the ids the API examples use, with their cards and charges."""
+        """Ana and Bruno keep the ids the API examples use, with their cards, charges and orders."""
         self.data.customers += [
             Customer(fixed.CUSTOMER_ANA, "Ana Souza", Cpf("52998224725")),
             Customer(fixed.CUSTOMER_BRUNO, "Bruno Lima", Cpf("11144477735")),
@@ -264,6 +255,7 @@ class _Generator:
         self._cpfs |= {"52998224725", "11144477735"}
         self.data.cards += fixed.CARDS
         self.data.transactions += fixed.TRANSACTIONS
+        self.data.orders += fixed_orders.ORDERS
 
     def add_customer(self) -> Card:
         name = f"{self.rng.choice(FIRST_NAMES)} {self.rng.choice(LAST_NAMES)}"
@@ -365,14 +357,14 @@ class _Generator:
             tracking = f"BR{self.rng.randint(10**8, 10**9 - 1)}"
             delivered_at = when + timedelta(days=self.rng.randint(2, 7))
             order = MerchantOrder(
-                self.uuid(), charge.id, merchant, "delivered", tracking, delivered_at
+                self.uuid(), charge.id, merchant, DeliveryStatus.DELIVERED, tracking, delivered_at
             )
             evidence = (
                 f"The merchant shows tracking {tracking}, delivered on {delivered_at:%Y-%m-%d}."
             )
             scenario, outcome = "order_delivered", ProposalOutcome.DENY
         else:
-            order = MerchantOrder(self.uuid(), charge.id, merchant, "not_delivered", None, None)
+            order = MerchantOrder(self.uuid(), charge.id, merchant, DeliveryStatus.NOT_DELIVERED)
             evidence = "The merchant has no tracking code and no delivery date for this order."
             scenario, outcome = "order_not_delivered", ProposalOutcome.APPROVE
         self.data.orders.append(order)
@@ -437,7 +429,7 @@ async def load(database: Database, data: SyntheticData) -> bool:
                 id=o.id,
                 transaction_id=o.transaction_id,
                 merchant=o.merchant,
-                delivery_status=o.delivery_status,
+                delivery_status=o.delivery_status.value,
                 tracking_code=o.tracking_code,
                 delivered_at=o.delivered_at,
             )

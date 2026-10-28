@@ -1,5 +1,6 @@
 """CoreBanking: the bank's system of record for cards and transactions, another bounded context."""
 
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -15,3 +16,12 @@ class CoreBanking(Protocol):
 
     async def get_card(self, card_id: UUID) -> Card | None:
         """Retrieve a card by its ID, or return None if not found."""
+
+    async def list_card_transactions(
+        self,
+        card_id: UUID,
+        *,
+        since: datetime,
+        until: datetime,
+    ) -> list[Transaction]:
+        """List all transactions for a given card ID within the specified time range."""

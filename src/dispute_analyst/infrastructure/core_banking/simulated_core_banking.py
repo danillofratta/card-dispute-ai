@@ -5,6 +5,8 @@ into our Card and Transaction, so the bank's names and formats never reach the d
 """
 
 from collections.abc import Iterable
+from datetime import datetime
+from operator import attrgetter
 from uuid import UUID
 
 from dispute_analyst.domain.entities.card import Card
@@ -31,3 +33,14 @@ class SimulatedCoreBanking:
     async def get_card(self, card_id: UUID) -> Card | None:
         """Return the card, or None if it is unknown."""
         return self._cards.get(card_id)
+
+    async def list_card_transactions(
+        self, card_id: UUID, *, since: datetime, until: datetime
+    ) -> list[Transaction]:
+        """Return the card's charges with since <= occurred_at < until, oldest first."""
+        found = (
+            transaction
+            for transaction in self._transactions.values()
+            if transaction.card_id == card_id and since <= transaction.occurred_at < until
+        )
+        return sorted(found, key=attrgetter("occurred_at"))

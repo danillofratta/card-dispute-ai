@@ -1,13 +1,19 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from dispute_analyst.infrastructure.core_banking.seed import (
     CARD_ANA,
     CUSTOMER_ANA,
     TX_ANA_ONLINE_STORE,
+    TX_ANA_STREAMING,
+    TX_ANA_STREAMING_AGAIN,
 )
 from dispute_analyst.infrastructure.core_banking.simulated_core_banking import (
     SimulatedCoreBanking,
 )
+
+OCTOBER_5 = datetime(2026, 10, 5, tzinfo=UTC)
+OCTOBER_6 = datetime(2026, 10, 6, tzinfo=UTC)
 
 
 async def test_finds_a_seeded_transaction_and_its_card() -> None:
@@ -33,3 +39,27 @@ async def test_accepts_custom_data() -> None:
     bank = SimulatedCoreBanking(cards=[], transactions=[])
 
     assert await bank.get_transaction(TX_ANA_ONLINE_STORE) is None
+
+
+async def test_lists_the_card_history_in_the_window_oldest_first() -> None:
+    bank = SimulatedCoreBanking()
+
+    history = await bank.list_card_transactions(CARD_ANA, since=OCTOBER_5, until=OCTOBER_6)
+
+    # The online store charge on October 1st is outside the window.
+    assert [t.id for t in history] == [TX_ANA_STREAMING, TX_ANA_STREAMING_AGAIN]
+
+
+async def test_the_history_window_excludes_until() -> None:
+    bank = SimulatedCoreBanking()
+    second_charge = datetime(2026, 10, 5, 9, 1, tzinfo=UTC)
+
+    history = await bank.list_card_transactions(CARD_ANA, since=OCTOBER_5, until=second_charge)
+
+    assert [t.id for t in history] == [TX_ANA_STREAMING]
+
+
+async def test_an_unknown_card_has_no_history() -> None:
+    bank = SimulatedCoreBanking()
+
+    assert await bank.list_card_transactions(uuid4(), since=OCTOBER_5, until=OCTOBER_6) == []

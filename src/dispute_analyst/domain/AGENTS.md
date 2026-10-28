@@ -9,8 +9,8 @@ The business rules of a card dispute, in pure Python. Nothing here knows about H
 | Folder | Holds | Examples |
 |---|---|---|
 | `value_objects/` | Immutable values, compared by value and validated on creation | `Money`, `Cpf`, `ApprovalLimit`, `DecisionProposal` |
-| `enums/` | Closed sets of values, as `StrEnum` | `DisputeStatus`, `DisputeReason`, `ProposalOutcome` |
-| `entities/` | Read-only snapshots of data owned by the core bank | `Customer`, `Card`, `Transaction` |
+| `enums/` | Closed sets of values, as `StrEnum` | `DisputeStatus`, `DisputeReason`, `ProposalOutcome`, `DeliveryStatus` |
+| `entities/` | Read-only snapshots of data owned by other contexts (core bank, merchants) | `Customer`, `Card`, `Transaction`, `MerchantOrder` |
 | `aggregates/` | Objects with identity and a lifecycle; the only place where state changes | `Dispute` |
 | `events/` | What happened, as frozen dataclasses | `DisputeOpened`, `DisputeApproved` |
 | `repositories/` | Repository interfaces (`Protocol`), one per aggregate; implemented in `infrastructure/` | `DisputeRepository` |

@@ -12,10 +12,12 @@ from dispute_analyst.infrastructure.core_banking.seed import (
     CUSTOMER_BRUNO,
     TRANSACTIONS,
 )
+from dispute_analyst.infrastructure.merchants.seed import ORDERS
 from dispute_analyst.infrastructure.persistence.sqlalchemy.database import Database
 from dispute_analyst.infrastructure.persistence.sqlalchemy.models import (
     CardModel,
     CustomerModel,
+    MerchantOrderModel,
     TransactionModel,
 )
 
@@ -46,7 +48,7 @@ async def empty_database() -> AsyncIterator[Database]:
 
 @pytest.fixture
 async def database(empty_database: Database) -> AsyncIterator[Database]:
-    """An empty database plus the fixed core bank data (Ana and Bruno)."""
+    """An empty database plus the fixed data: Ana and Bruno at the bank, and their orders."""
     database = empty_database
     async with database.session_factory() as session:
         session.add_all(
@@ -71,6 +73,17 @@ async def database(empty_database: Database) -> AsyncIterator[Database]:
                 occurred_at=transaction.occurred_at,
             )
             for transaction in TRANSACTIONS
+        )
+        session.add_all(
+            MerchantOrderModel(
+                id=order.id,
+                transaction_id=order.transaction_id,
+                merchant=order.merchant,
+                delivery_status=order.delivery_status.value,
+                tracking_code=order.tracking_code,
+                delivered_at=order.delivered_at,
+            )
+            for order in ORDERS
         )
         await session.commit()
 

@@ -75,7 +75,7 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
   - `domain/repositories/`: `DisputeRepository`, the DDD repository of the aggregate.
   - `application/ports/`: ports shared by several slices that return domain types: `UnitOfWork`, `CoreBanking`,
     and later `LLM`, `KnowledgeBase`, `MessageBus`, `EventStream`, `Cache`.
-  - `features/<context>/<slice>/ports.py`: ports only that slice uses, such as `DisputeAnalyzer` in `analyze_dispute/`.
+  - `features/<context>/<slice>/gateway.py`: ports only that slice uses, such as `AnalyzeDisputeGateway` in `analyze_dispute/`.
   - Inside `infrastructure/`: abstractions only infrastructure uses, such as `VectorStore`, `Reranker` and `PlaybookRepository`.
 - `infrastructure/` implements the ports, so it may import a slice's core (`ports`, `result`, `query`, `command`),
   never its endpoint, models or handler. One infrastructure module per slice port: a module serving two slices

@@ -1,7 +1,9 @@
 """Settings read from environment variables, or from a local .env file in development."""
 
+from decimal import Decimal
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +14,9 @@ class Settings(BaseSettings):
 
     # postgresql+asyncpg://user:password@host:5432/database. Without it, data stays in memory.
     database_url: str | None = None
+
+    # In BRL: approvals above it wait for a human. The evals dataset expects 500.00.
+    approval_limit: Decimal = Field(default=Decimal("500.00"), ge=0, decimal_places=2)
 
 
 @lru_cache
