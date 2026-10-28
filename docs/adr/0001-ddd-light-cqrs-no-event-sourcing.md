@@ -1,6 +1,6 @@
 # ADR 0001 — DDD with light CQRS, without event sourcing
 
-- **Status:** Accepted
+- **Status:** Accepted; the read side of light CQRS is amended by [ADR 0004](0004-queries-read-through-the-repository.md)
 - **Date:** 2026-10-21
 
 ## Context

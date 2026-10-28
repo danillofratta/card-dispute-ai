@@ -22,4 +22,4 @@ Portfolio project: an AI-powered card dispute analyst, built as a public monorep
 ## Status
 
 - Scope finalized on 2026-10-21
-- In progress: Module 1 — Core and infrastructure, starting with `AGENTS.md` and the uv workspace skeleton
+- Module 1 — Core and infrastructure, in progress: domain, API, Postgres, Docker Compose and synthetic data done; next: swappable LLM client, simulated tools, tracing and the Streamlit queue

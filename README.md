@@ -10,8 +10,32 @@ Python 3.12 · uv · LangGraph · FastAPI · Pydantic · Postgres + pgvector · 
 ## Design principles
 
 - **The agent proposes, the domain decides:** the LLM returns a structured proposal, and the `Dispute` aggregate enforces the business invariants.
-- **DDD + light CQRS + vertical slices:** commands go through the aggregate, queries read projected read models, and each use case lives in its own slice.
+- **DDD + light CQRS + vertical slices:** commands go through the aggregate, queries map it to their own results, and each use case lives in its own slice.
 - **Architecture contracts enforced in CI:** import-linter breaks the build if the domain imports a framework or one slice imports another.
+
+## Run it
+
+With Docker running:
+
+```bash
+docker compose up --build
+```
+
+This starts Postgres, applies the migrations, loads the synthetic data (52 customers, 1,068 card transactions, 300 open disputes) and serves the API. Open http://localhost:8000/docs and try:
+
+- `GET /disputes`: the dispute queue, oldest first
+- `POST /disputes`: the example body opens a dispute for a duplicate charge
+- `GET /disputes/{id}`: one dispute, with the merchant and the card it was charged on
+
+Without Docker, the API keeps data in memory:
+
+```bash
+uv sync
+uv run pytest
+uv run uvicorn dispute_analyst.main:app --reload
+```
+
+All data is synthetic, generated with a fixed seed by [`scripts/seed.py`](scripts/seed.py). [`evals/datasets/disputes_v1.jsonl`](evals/datasets/disputes_v1.jsonl) records the expected decision for each of the 300 disputes and the data that proves it; it is the ground truth for the evals in module 6.
 
 ## How it works
 

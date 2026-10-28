@@ -47,3 +47,47 @@ jobs:
 
       - name: Tests
         run: uv run pytest
+  integration:
+    name: Postgres integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # The same image docker compose uses, started by GitHub next to the job.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: dispute
+          POSTGRES_PASSWORD: dispute
+          POSTGRES_DB: disputes_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dispute -d disputes_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://dispute:dispute@localhost:5432/disputes_test
+      TEST_DATABASE_URL: postgresql+asyncpg://dispute:dispute@localhost:5432/disputes_test
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install the workspace
+        run: uv sync --locked
+
+      - name: Run the migrations
+        run: uv run alembic upgrade head
+
+      # Fails if a table model changed without a migration.
+      - name: Models match the migrations
+        run: uv run alembic check
+
+      - name: Integration tests
+        run: uv run pytest -m integration

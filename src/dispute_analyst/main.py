@@ -1,10 +1,21 @@
 """FastAPI composition root: creates the app and includes the router of each vertical slice."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
+from dispute_analyst.bootstrap.dependencies import dispose_database
 from dispute_analyst.features.disputes.get_dispute.endpoint import router as get_dispute_router
 from dispute_analyst.features.disputes.list_queue.endpoint import router as list_queue_router
 from dispute_analyst.features.disputes.open_dispute.endpoint import router as open_dispute_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Release the database connection pool when the API stops."""
+    yield
+    await dispose_database()
 
 
 def create_app() -> FastAPI:
