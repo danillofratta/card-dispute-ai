@@ -8,6 +8,7 @@ from dispute_analyst.domain.aggregates.dispute import Dispute
 from dispute_analyst.domain.entities.transaction import Transaction
 from dispute_analyst.domain.enums.dispute_status import DisputeStatus
 from dispute_analyst.infrastructure.core_banking.seed import CUSTOMER_ANA, CUSTOMER_BRUNO
+from dispute_analyst.infrastructure.merchants.seed import ORDERS
 from scripts.seed import DATASET_PATH, Case, SyntheticData, generate
 
 
@@ -54,6 +55,10 @@ def test_ana_and_bruno_keep_their_fixed_ids(data: SyntheticData) -> None:
     ids = {customer.id for customer in data.customers}
 
     assert {CUSTOMER_ANA, CUSTOMER_BRUNO} <= ids
+
+
+def test_ana_and_bruno_keep_their_fixed_orders(data: SyntheticData) -> None:
+    assert set(ORDERS) <= set(data.orders)
 
 
 def test_every_case_opens_a_valid_dispute(data: SyntheticData) -> None:

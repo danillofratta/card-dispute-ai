@@ -51,9 +51,9 @@ A shared base that lets every following module run with a single command.
 
 - Domain model: customer, card, transaction, dispute, reason, status, decision
 - Synthetic data generator: customers, transactions and about 300 disputes with expected decisions (ground truth)
-- Simulated tools: look up a transaction, customer history, block a card, open a chargeback, notify the customer
+- Simulated read-only tools for the agent: look up the disputed transaction, the card's history and the merchant's order
 - LLM client with the provider swappable by configuration
-- Docker Compose (light profile) with Postgres + pgvector, Langfuse, API and UI; the brokers arrive in module 10
+- Docker Compose (light profile) with Postgres + pgvector, API and UI; self-hosted Langfuse with `--profile tracing`; the brokers arrive in module 10
 - Basic tracing from day one
 - CI with ruff, mypy, pytest and import-linter
 
@@ -128,6 +128,7 @@ The heart of the analyst: the multi-agent flow, the quality bar that protects it
 - A reviewer checks the decision and its cited justification
 - LangGraph `interrupt` for human approval above the limit
 - Postgres checkpointer: pause, resume and execution history
+- Action tools (block a card, open a chargeback, notify the customer), run by the flow after the domain decides, never chosen by the model
 - Structured output: decision, amount, justification, cited sources
 
 **Out of scope:** real card-network rules; business rules are synthetic.
@@ -156,7 +157,7 @@ The heart of the analyst: the multi-agent flow, the quality bar that protects it
 
 **Scope**
 
-- The module 5 flow in three versions, implemented as three `DisputeAnalyzer` adapters: rules in code, an LLM supervisor deciding, and a fixed skeleton with a single free node
+- The module 5 flow in three versions, implemented as three `AnalyzeDisputeGateway` adapters: rules in code, an LLM supervisor deciding, and a fixed skeleton with a single free node
 - The same test cases as module 6
 - Metrics: accuracy, cost, latency, path variance (10 runs per case) and behavior on out-of-pattern cases
 - Extra experiment: on-demand skills versus a single prompt with everything inside, measuring tokens and accuracy

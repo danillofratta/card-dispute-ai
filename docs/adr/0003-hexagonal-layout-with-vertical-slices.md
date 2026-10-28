@@ -1,6 +1,6 @@
 # ADR 0003 — Hexagonal layout with vertical slices
 
-- **Status:** Accepted; the read ports (`DisputeDetailsReader`, `DisputeQueueReader`) are superseded by [ADR 0004](0004-queries-read-through-the-repository.md)
+- **Status:** Accepted; the read ports (`DisputeDetailsReader`, `DisputeQueueReader`) are superseded by [ADR 0004](0004-queries-read-through-the-repository.md); since 2026-10-28 a slice's own ports live in `gateway.py` and carry the `Gateway` suffix (`AnalyzeDisputeGateway`)
 - **Date:** 2026-10-21 (revised 2026-10-22: read ports move into the slices)
 - **Supersedes:** the `ports/`, `adapters/`, `infra/` and `entrypoints/` layout in the first version of `AGENTS.md`
 
@@ -18,7 +18,7 @@ The first layout split the product into technical packages (`ports/`, `adapters/
 | `UnitOfWork` | Transaction boundary (PoEAA, not a DDD pattern) | Command handlers | `application/ports/` |
 | `CoreBanking` | Integration with another bounded context | Several slices | `application/ports/` |
 | `DisputeDetailsReader`, `DisputeQueueReader` | Read side of one query | One query slice each | `features/disputes/<slice>/ports.py` |
-| `DisputeAnalyzer` | Port of one slice | `analyze_dispute` | `features/disputes/analyze_dispute/ports.py` |
+| `AnalyzeDisputeGateway` | Port of one slice | `analyze_dispute` | `features/disputes/analyze_dispute/gateway.py` |
 
 The domain never calls the core bank: `Dispute.open()` receives a `Transaction` already loaded by the handler. So `CoreBanking` is an application port, not a domain concept. Its implementation in `infrastructure/core_banking/` is the anti-corruption layer that translates the bank's model into ours.
 

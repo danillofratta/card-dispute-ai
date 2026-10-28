@@ -61,7 +61,7 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 ### Vertical slices
 - One folder per use case under `features/<context>/`, for example `features/disputes/open_dispute/`:
   - core: `command.py` or `query.py`, `handler.py`, `result.py` (what the handler returns, in domain types),
-    and, when needed, `ports.py` (ports only this slice uses) and `exceptions.py`;
+    and, when needed, `gateway.py` (ports only this slice uses) and `exceptions.py`;
   - HTTP adapter: `endpoint.py` (the FastAPI router) and `models.py` (Pydantic request and response).
 - The endpoint maps request → command or query, and result → response. It also maps the slice's own errors
   to HTTP; there is no shared exception handler, because it would import every slice and couple them.
@@ -74,10 +74,12 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 - Ports are `typing.Protocol`s, and each one lives with its consumer ([ADR 0003](docs/adr/0003-hexagonal-layout-with-vertical-slices.md)):
   - `domain/repositories/`: `DisputeRepository`, the DDD repository of the aggregate.
   - `application/ports/`: ports shared by several slices that return domain types: `UnitOfWork`, `CoreBanking`,
-    and later `LLM`, `KnowledgeBase`, `MessageBus`, `EventStream`, `Cache`.
+    and later `KnowledgeBase`, `MessageBus`, `EventStream`, `Cache`.
   - `features/<context>/<slice>/gateway.py`: ports only that slice uses, such as `AnalyzeDisputeGateway` in `analyze_dispute/`.
-  - Inside `infrastructure/`: abstractions only infrastructure uses, such as `VectorStore`, `Reranker` and `PlaybookRepository`.
-- `infrastructure/` implements the ports, so it may import a slice's core (`ports`, `result`, `query`, `command`),
+  - Inside `infrastructure/`: abstractions only infrastructure uses, such as `Merchants`, `VectorStore`, `Reranker` and `PlaybookRepository`.
+  - No LLM port: only the agents call a model, and LangChain's `BaseChatModel` is already the common interface of the
+    providers ([ADR 0006](docs/adr/0006-llm-access-baseline-agent-and-tracing.md)).
+- `infrastructure/` implements the ports, so it may import a slice's core (`gateway`, `exceptions`, `result`, `query`, `command`),
   never its endpoint, models or handler. One infrastructure module per slice port: a module serving two slices
   would couple them.
 - `bootstrap/dependencies.py` provides the shared ports and never imports a slice. Each slice with its own ports
@@ -85,10 +87,12 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 - `UnitOfWork` persists the aggregate and its outbox events in one transaction. Commands use the repository inside it;
   queries get the repository directly from `bootstrap`, because reading needs no transaction.
 - `infrastructure/core_banking/` is the anti-corruption layer: it translates the bank's model into our `Customer`, `Card` and `Transaction`.
-- The deterministic, autonomous and hybrid strategies are three `DisputeAnalyzer` implementations in
+- The deterministic, autonomous and hybrid strategies are three `AnalyzeDisputeGateway` implementations in
   `infrastructure/agents/`, chosen by configuration. Agents reach RAG only through `KnowledgeBase`,
   implemented in `infrastructure/knowledge/`.
-- On the `LLM` port: PII masking as a decorator, circuit breaker (state in Redis) and provider fallback (primary → secondary → local).
+- Agents get read-only tools bound to the case being analyzed; they never act (block a card, refund) before the domain decides.
+- Around the chat model, in `infrastructure/llm/`: PII masking, circuit breaker (state in Redis) and provider fallback
+  (primary → secondary → local).
 
 ### Messaging and resilience
 - Domain events → Kafka (key = dispute id, to keep per-dispute ordering). Work commands (analyze, refund) → RabbitMQ (priority by amount, dead-letter, delayed retry).
@@ -108,14 +112,14 @@ DDD, light CQRS, vertical slices and ports & adapters apply to the product (`src
 Contracts live in the import-linter config and run in CI. All paths are under `dispute_analyst`.
 
 1. **Pure core** — `domain` and `application` import no framework (pydantic, langchain*, langgraph, fastapi,
-   sqlalchemy/psycopg, kafka/rabbitmq clients, redis, httpx, LLM SDKs) and no outer layer. The domain is stricter:
+   sqlalchemy/psycopg, kafka/rabbitmq clients, redis, httpx, LLM SDKs, langfuse) and no outer layer. The domain is stricter:
    standard library only (`tests/test_domain_is_pure.py`).
 2. **Layers** (high → low): `main` → `bootstrap` → `infrastructure` → `application` → `domain`. Slices are not a
    layer: their core sits beside `application`, their endpoint beside `main`.
 3. **Independent slices** — `features.<context>.<slice>` never import each other, directly or indirectly
    (through `bootstrap` or `infrastructure` too).
 4. **No direct infrastructure in features** — endpoints reach implementations only through `bootstrap`.
-5. **Slice core knows only the core** — `command`, `query`, `handler`, `ports` and `result` import `domain` and
+5. **Slice core knows only the core** — `command`, `query`, `handler`, `gateway`, `exceptions` and `result` import `domain` and
    `application` only: no FastAPI, Pydantic, `bootstrap` or `infrastructure`.
 6. **Infrastructure implements ports** — it never imports a slice's endpoint, models or handler, nor `bootstrap` or `main`.
 7. **Product isolation** — `dispute_analyst` never imports `labs`, `evals`, `ingestion` or `ui`.
@@ -141,17 +145,18 @@ card-dispute-ai/
 │   │       ├── open_dispute/       # command
 │   │       ├── get_dispute/        # query
 │   │       ├── list_queue/         # query
-│   │       ├── analyze_dispute/    # command → DisputeAnalyzer (port inside the slice)
+│   │       ├── analyze_dispute/    # command → AnalyzeDisputeGateway (gateway.py inside the slice)
 │   │       ├── approve_decision/   # command
 │   │       └── execute_refund/     # command → A2A, .NET agent
 │   ├── infrastructure/       # implementations of the ports
 │   │   ├── persistence/      # memory/ (tests, quick runs) and sqlalchemy/ (Postgres): repository, unit of work, outbox
 │   │   ├── core_banking/     # core bank adapters, in memory or Postgres (anti-corruption layer)
-│   │   ├── agents/           # LangGraph graphs, the three strategies and skills/ (specialist playbooks)
+│   │   ├── merchants/        # merchants' orders, in memory or Postgres (anti-corruption layer)
+│   │   ├── agents/           # baseline/ (module 1); LangGraph graphs, the three strategies and skills/ later
 │   │   ├── knowledge/        # runtime RAG: router, retrievers, rerankers
-│   │   ├── llm/              # OpenAI, Anthropic, Ollama behind the LLM port
+│   │   ├── llm/              # chat model by configuration: OpenAI or compatible (Groq), Anthropic, Ollama
 │   │   ├── messaging/        # Kafka, RabbitMQ, projections into read models
-│   │   └── observability/    # tracing, metrics, logging
+│   │   └── observability/    # Langfuse tracing; OpenTelemetry, metrics and logging in module 9
 │   ├── bootstrap/            # composition root: dependencies.py (memory or Postgres) and settings.py
 │   └── main.py               # FastAPI app; MCP server and workers join it as other entry points
 ├── tests/                    # mirrors src; @pytest.mark.integration tests need TEST_DATABASE_URL
