@@ -145,23 +145,25 @@ card-dispute-ai/
 │   │       ├── approve_decision/   # command
 │   │       └── execute_refund/     # command → A2A, .NET agent
 │   ├── infrastructure/       # implementations of the ports
-│   │   ├── persistence/      # memory/ then postgres/: repository, unit of work, outbox, inbox; <context>/<slice>.py for slice ports
-│   │   ├── core_banking/     # simulated core bank (anti-corruption layer)
+│   │   ├── persistence/      # memory/ (tests, quick runs) and sqlalchemy/ (Postgres): repository, unit of work, outbox
+│   │   ├── core_banking/     # core bank adapters, in memory or Postgres (anti-corruption layer)
 │   │   ├── agents/           # LangGraph graphs, the three strategies and skills/ (specialist playbooks)
 │   │   ├── knowledge/        # runtime RAG: router, retrievers, rerankers
 │   │   ├── llm/              # OpenAI, Anthropic, Ollama behind the LLM port
 │   │   ├── messaging/        # Kafka, RabbitMQ, projections into read models
 │   │   └── observability/    # tracing, metrics, logging
-│   ├── bootstrap/            # composition root: dependencies.py (shared), <context>/<slice>.py, settings
+│   ├── bootstrap/            # composition root: dependencies.py (memory or Postgres) and settings.py
 │   └── main.py               # FastAPI app; MCP server and workers join it as other entry points
-├── tests/                    # mirrors src: domain/, features/<context>/<slice>/, infrastructure/
+├── tests/                    # mirrors src; @pytest.mark.integration tests need TEST_DATABASE_URL
+├── migrations/               # Alembic; one schema per bounded context (public, core_banking, merchants)
+├── scripts/                  # seed.py: deterministic synthetic data and the evals dataset
 ├── labs/                     # experiments, no DDD (rag_lab/, strategies/)
-├── evals/                    # datasets, judges, CI suites
+├── evals/                    # datasets (disputes_v1.jsonl: 300 cases with expected decisions), judges, CI suites
 ├── ingestion/                # regulation and policy ingestion pipeline
 ├── ui/                       # Streamlit
 ├── interop/dotnet/           # .NET refund agent, same pattern, in C#
 ├── docs/adr/                 # architecture decision records
-└── docker-compose.yml        # light (default) and full profiles
+└── docker-compose.yml        # postgres → migrate → seed → api; a full profile arrives in module 10
 ```
 
 Folder-level `AGENTS.md` files refine these rules for `domain/` (pure Python, no I/O), `features/` (slice layout) and `labs/` (no DDD).
@@ -170,15 +172,19 @@ Folder-level `AGENTS.md` files refine these rules for `domain/` (pure Python, no
 
 ```bash
 uv sync                               # install the workspace
-uv run pytest                         # all tests
+uv run pytest                         # all tests; integration tests skip without TEST_DATABASE_URL
 uv run pytest -m "not integration"    # fast unit subset
+uv run pytest -m integration          # Postgres tests: needs TEST_DATABASE_URL, a migrated database they may empty
+uv run alembic upgrade head           # migrate DATABASE_URL
+uv run alembic check                  # fails if a table model changed without a migration
+uv run python -m scripts.seed dataset   # regenerate evals/datasets/disputes_v1.jsonl
+uv run python -m scripts.seed database  # load the synthetic data into DATABASE_URL (once)
 uv run ruff check . --fix             # lint
 uv run ruff format .                  # format
 uv run mypy src                       # type-check
 uv run lint-imports                   # architecture contracts
-uv run uvicorn dispute_analyst.main:app --reload   # API on http://localhost:8000/docs
-docker compose up                     # light profile: queue in Postgres, in-memory cache
-docker compose --profile full up      # adds Kafka, RabbitMQ and Redis
+uv run uvicorn dispute_analyst.main:app --reload   # API on http://localhost:8000/docs (Postgres if DATABASE_URL is set)
+docker compose up --build             # Postgres, migrations, synthetic data and the API
 ```
 
 Before every commit: `uv run ruff format . && uv run ruff check . && uv run mypy src && uv run lint-imports && uv run pytest`.

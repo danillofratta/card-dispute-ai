@@ -1,6 +1,6 @@
 # ADR 0003 — Hexagonal layout with vertical slices
 
-- **Status:** Accepted
+- **Status:** Accepted; the read ports (`DisputeDetailsReader`, `DisputeQueueReader`) are superseded by [ADR 0004](0004-queries-read-through-the-repository.md)
 - **Date:** 2026-10-21 (revised 2026-10-22: read ports move into the slices)
 - **Supersedes:** the `ports/`, `adapters/`, `infra/` and `entrypoints/` layout in the first version of `AGENTS.md`
 
